@@ -7,6 +7,12 @@ class RtspCamera extends ScryptedDeviceBase implements VideoCamera, Settings {
         super(nativeId);
     }
     getVideoStream(): MediaObject {
+        // could send back an ffmpeg object, but the scrypted rtsp streamer seems to work better for chromecasts.
+        // return mediaManager.createFFmpegMediaObject([
+        //     "-i",
+        //     this.storage.getItem("url"),
+        // ]);
+
         var url = this.storage.getItem("url");
         if (!url) {
             return null;
