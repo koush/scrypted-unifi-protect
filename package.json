@@ -1,6 +1,6 @@
 {
    "name": "@scrypted/rtsp",
-   "version": "0.0.2",
+   "version": "0.0.3",
    "description": "RTSP Cameras and Streams Plugin for Scrypted",
    "author": "Scrypted",
    "license": "Apache",
@@ -26,9 +26,10 @@
       ]
    },
    "devDependencies": {
-      "@scrypted/sdk": "0.0.26"
+      "@scrypted/sdk": "0.0.37"
    },
    "dependencies": {
-      "axios": "^0.18.0"
+      "axios": "^0.18.1",
+      "wrtc": "^0.4.1"
    }
 }

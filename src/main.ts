@@ -7,11 +7,19 @@ class RtspCamera extends ScryptedDeviceBase implements VideoCamera, Settings {
         super(nativeId);
     }
     getVideoStream(): MediaObject {
-        // could send back an ffmpeg object, but the scrypted rtsp streamer seems to work better for chromecasts.
-        // return mediaManager.createFFmpegMediaObject([
-        //     "-i",
-        //     this.storage.getItem("url"),
-        // ]);
+        if (this.storage.getItem("ffmpeg") === 'true') {
+            return mediaManager.createFFmpegMediaObject({
+                inputArguments: [
+                    "-an",
+                    "-i",
+                    this.storage.getItem("url"),
+                    // "-reorder_queue_size",
+                    // "1024",
+                    // "-max_delay",
+                    // "2000000",
+                ]
+            });
+        }
 
         var url = this.storage.getItem("url");
         if (!url) {
@@ -41,6 +49,12 @@ class RtspCamera extends ScryptedDeviceBase implements VideoCamera, Settings {
                 title: 'Password',
                 value: this.getSetting('password'),
             },
+            {
+                key: 'ffmpeg',
+                title: 'Force FFMPEG',
+                value: this.getSetting('ffmpeg'),
+                description: "Use ffmpeg instead of built in RTSP decoder. Boolean: true or false."
+            }
         ];
     }
     putSetting(key: string, value: string | number): void {
