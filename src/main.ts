@@ -1,5 +1,6 @@
 import sdk, { ScryptedDeviceBase, DeviceProvider, Settings, Setting, ScryptedDeviceType, VideoCamera, MediaObject } from "@scrypted/sdk";
 const { log, deviceManager, mediaManager } = sdk;
+var Url = require('url-parse');
 
 class RtspCamera extends ScryptedDeviceBase implements VideoCamera, Settings {
 
@@ -7,31 +8,36 @@ class RtspCamera extends ScryptedDeviceBase implements VideoCamera, Settings {
         super(nativeId);
     }
     getVideoStream(): MediaObject {
+        var u = this.storage.getItem("url");
+        if (u == null) {
+            return null;
+        }
+        const url = new Url(u);
+        url.username = this.storage.getItem("username")
+        url.password = this.storage.getItem("password");
+
         if (this.storage.getItem("ffmpeg") === 'true') {
             return mediaManager.createFFmpegMediaObject({
                 inputArguments: [
                     "-an",
                     "-i",
-                    this.storage.getItem("url"),
-                    // "-reorder_queue_size",
-                    // "1024",
-                    // "-max_delay",
-                    // "2000000",
+                    url.toString(),
+                    "-reorder_queue_size",
+                    "1024",
+                    "-max_delay",
+                    "2000000",
                 ]
             });
         }
 
-        var url = this.storage.getItem("url");
-        if (!url) {
-            return null;
-        }
         // mime type will be inferred from the rtsp scheme, and null may be passed.
-        return mediaManager.createMediaObject(url, null);
+        return mediaManager.createMediaObject(url.toString(), null);
     }
     getSetting(key: string): string | number {
         return this.storage.getItem(key);
     }
     getSettings(): Setting[] {
+        console.log('invoked');
         return [
             {
                 key: 'url',
