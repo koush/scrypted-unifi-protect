@@ -37,7 +37,6 @@ class RtspCamera extends ScryptedDeviceBase implements VideoCamera, Settings {
         return this.storage.getItem(key);
     }
     getSettings(): Setting[] {
-        console.log('invoked');
         return [
             {
                 key: 'url',
@@ -54,12 +53,14 @@ class RtspCamera extends ScryptedDeviceBase implements VideoCamera, Settings {
                 key: 'password',
                 title: 'Password',
                 value: this.getSetting('password'),
+                type: 'Password',
             },
             {
                 key: 'ffmpeg',
                 title: 'Force FFMPEG',
-                value: this.getSetting('ffmpeg'),
-                description: "Use ffmpeg instead of built in RTSP decoder. Boolean: true or false."
+                value: this.getSetting('ffmpeg') === 'true',
+                description: "Use ffmpeg instead of built in RTSP decoder.",
+                type: 'Boolean',
             }
         ];
     }
