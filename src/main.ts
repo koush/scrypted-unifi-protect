@@ -1,27 +1,33 @@
-import sdk, { ScryptedDeviceBase, DeviceProvider, Settings, Setting, ScryptedDeviceType, VideoCamera, MediaObject } from "@scrypted/sdk";
+import sdk, { ScryptedDeviceBase, DeviceProvider, Settings, Setting, ScryptedDeviceType, VideoCamera, MediaObject, DeviceManifest, Device, MotionSensor, Refresh, ScryptedInterfaceDescriptors, ScryptedInterface } from "@scrypted/sdk";
 const { log, deviceManager, mediaManager } = sdk;
-var Url = require('url-parse');
+import axios from 'axios';
+import throttle from 'lodash/throttle';
 
-class RtspCamera extends ScryptedDeviceBase implements VideoCamera, Settings {
+class RtspCamera extends ScryptedDeviceBase implements VideoCamera, MotionSensor, Refresh {
+    protect: UnifiProtect;
 
-    constructor(nativeId: string) {
+    constructor(protect: UnifiProtect, nativeId: string) {
         super(nativeId);
+        this.protect = protect;
+    }
+    getRefreshFrequency(): number {
+        return 1;
+    }
+    refresh(refreshInterface: string, userInitiated: boolean): void {
+        this.protect.refresh();
     }
     getVideoStream(): MediaObject {
-        var u = this.storage.getItem("url");
+        var u = this.metadata.rtsp;
         if (u == null) {
             return null;
         }
-        const url = new Url(u);
-        url.username = this.storage.getItem("username")
-        url.password = this.storage.getItem("password");
 
         if (this.storage.getItem("ffmpeg") === 'true') {
             return mediaManager.createFFmpegMediaObject({
                 inputArguments: [
                     "-an",
                     "-i",
-                    url.toString(),
+                    u.toString(),
                     "-reorder_queue_size",
                     "1024",
                     "-max_delay",
@@ -31,80 +37,164 @@ class RtspCamera extends ScryptedDeviceBase implements VideoCamera, Settings {
         }
 
         // mime type will be inferred from the rtsp scheme, and null may be passed.
-        return mediaManager.createMediaObject(url.toString(), null);
+        return mediaManager.createMediaObject(u, null);
     }
-    getSetting(key: string): string | number {
+}
+
+
+class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvider {
+    authorization: string|undefined;
+    accessKey: string|undefined;
+    cameras: Map<string, RtspCamera> = new Map();
+
+    constructor() {
+        super();
+
+        this.discoverDevices(0)
+    }
+
+    refreshThrottle = throttle(async () => {
+        const {cameras} = await this.getState();
+        for (const camera of cameras) {
+            const rtsp = this.cameras.get(camera.mac);
+            if (!rtsp)
+                continue;
+            if (rtsp.storage.getItem('lastMotion') != camera.lastMotion) {
+                rtsp.storage.setItem('lastMotion', camera.lastMotion.toString());
+                rtsp.motionDetected = true;
+                setTimeout(() => {
+                    rtsp.motionDetected = false;
+                }, 10000);
+            }
+        }
+    }, 1000);
+    async refresh() {
+        this.refreshThrottle();
+    }
+
+    async getState(): Promise<any> {
+        const ip = this.getSetting('ip');
+        const username = this.getSetting('username');
+        const password = this.getSetting('password');
+
+        const response = await axios.post(`https://${ip}:7443/api/auth`, {
+            username,
+            password,
+        }, {
+            headers: {
+                Origin: `https://${ip}:7443`,
+                'Content-Type': 'application/json; charset=utf-8',
+            }
+        })
+
+        this.authorization = response.headers.authorization;
+
+        const bootstrapResponse = await axios(`https://${ip}:7443/api/bootstrap`, {
+            headers: {
+                Authorization: `Bearer ${this.authorization}`
+            }
+        });
+
+        const {accessKey} = bootstrapResponse.data;
+        this.accessKey = accessKey;
+        return bootstrapResponse.data;
+    }
+
+    async discoverDevices(duration: number) {
+        const ip = this.getSetting('ip');
+        const username = this.getSetting('username');
+        const password = this.getSetting('password');
+
+        this.log.clearAlerts();
+
+        if (!ip) {
+            this.log.a('Must provide IP address.');
+            return
+        }
+
+        if (!username) {
+            this.log.a('Must provide username.');
+            return
+        }
+
+        if (!password) {
+            this.log.a('Must provide password.');
+            return
+        }
+
+        try {
+            const {cameras} = await this.getState();
+
+            const devices: Device[] = [];
+            
+            for (const camera of cameras) {
+                const rtspChannels = camera.channels.filter(channel => channel.isRtspEnabled)
+                if (!rtspChannels.length) {
+                    log.a(`RTSP is not enabled on the Unifi Camera: ${camera.name}`);
+                    continue;
+                }
+                const rtspChannel = rtspChannels[0];
+
+                const {rtspAlias} = rtspChannel;
+
+                devices.push({
+                    name: camera.name,
+                    nativeId: camera.mac,
+                    interfaces: [ScryptedInterface.VideoCamera, ScryptedInterface.MotionSensor, ScryptedInterface.Refresh],
+                    type: ScryptedDeviceType.Camera,
+                    metadata: {
+                        rtsp: `rtsp://${ip}:7447/${rtspAlias}`
+                    }
+                })
+            }
+
+            deviceManager.onDevicesChanged({
+                devices
+            })
+        }
+        catch (e) {
+            this.log.a(`login error: ${e}`);
+        }
+    }
+
+    getDevice(nativeId: string): object {
+        if (this.cameras.has(nativeId))
+            return this.cameras.get(nativeId);
+        const ret = new RtspCamera(this, nativeId);
+        this.cameras.set(nativeId, ret);
+        this.refresh();
+        return ret;
+    }
+
+    getSetting(key: string): string {
         return this.storage.getItem(key);
     }
     getSettings(): Setting[] {
+        this.log.i('getting settings');
         return [
             {
-                key: 'url',
-                title: 'RTSP Stream URL',
-                placeholder: 'rtsp://192.168.1.100:4567/foo/bar',
-                value: this.getSetting('url'),
+                key: 'ip',
+                title: 'Unifi Protect IP',
+                placeholder: '192.168.1.100',
+                value: this.getSetting('ip') || '',
             },
             {
                 key: 'username',
                 title: 'Username',
-                value: this.getSetting('username'),
+                value: this.getSetting('username') || '',
             },
             {
                 key: 'password',
                 title: 'Password',
-                value: this.getSetting('password'),
                 type: 'Password',
+                value: this.getSetting('password') || '',
             },
-            {
-                key: 'ffmpeg',
-                title: 'Force FFMPEG',
-                value: this.getSetting('ffmpeg') === 'true',
-                description: "Use ffmpeg instead of built in RTSP decoder.",
-                type: 'Boolean',
-            }
         ];
     }
     putSetting(key: string, value: string | number): void {
         this.storage.setItem(key, value.toString());
+        this.discoverDevices(0);
     }
 }
 
-class RtspProvider extends ScryptedDeviceBase implements DeviceProvider, Settings {
-    getSetting(key: string): string | number {
-        return null;
-    }
-    getSettings(): Setting[] {
-        return [
-            {
-                key: 'new-camera',
-                title: 'Add RTSP Camera',
-                placeholder: 'Camera name, e.g.: Back Yard Camera, Baby Camera, etc',
-            }
-        ]
-    }
-    putSetting(key: string, value: string | number): void {
-            // generate a random id
-        var nativeId = Math.random().toString();
-        var name = value.toString();
-
-        deviceManager.onDeviceDiscovered({
-            nativeId,
-            name: name,
-            interfaces: ["VideoCamera", "Settings"],
-            type: ScryptedDeviceType.Camera,
-        });
-
-        var camera = new RtspCamera(nativeId);
-        var text = `New RTSP Camera ${name} ready. Check the notification area to complete setup.`;
-        log.a(text);
-        log.clearAlert(text);
-    }
-    discoverDevices(duration: number): void {
-    }
-
-    getDevice(nativeId: string): object {
-        return new RtspCamera(nativeId);
-    }
-}
-
-export default new RtspProvider();
+export default new UnifiProtect();

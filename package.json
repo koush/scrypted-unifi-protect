@@ -1,7 +1,7 @@
 {
-   "name": "@scrypted/rtsp",
-   "version": "0.0.5",
-   "description": "RTSP Cameras and Streams Plugin for Scrypted",
+   "name": "@scrypted/unifi-protect",
+   "version": "0.0.1",
+   "description": "Unifi Protect Plugin for Scrypted",
    "author": "Scrypted",
    "license": "Apache",
    "scripts": {
@@ -18,18 +18,21 @@
       "plugin"
    ],
    "scrypted": {
-      "name": "RTSP Camera Controller",
+      "name": "Unifi Protect Controller",
       "type": "Device",
       "interfaces": [
          "DeviceProvider",
          "Settings"
-      ]
+      ],
+      "rejectUnauthorized": false
    },
    "devDependencies": {
-      "@scrypted/sdk": "0.0.40"
+      "@scrypted/sdk": "0.0.56",
+      "@types/lodash": "^4.14.158"
    },
    "dependencies": {
       "axios": "^0.18.1",
+      "lodash.throttle": "^4.1.1",
       "url-parse": "^1.4.7",
       "wrtc": "^0.4.1"
    }
