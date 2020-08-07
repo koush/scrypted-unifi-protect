@@ -1,14 +1,28 @@
-import sdk, { ScryptedDeviceBase, DeviceProvider, Settings, Setting, ScryptedDeviceType, VideoCamera, MediaObject, DeviceManifest, Device, MotionSensor, Refresh, ScryptedInterfaceDescriptors, ScryptedInterface } from "@scrypted/sdk";
+import sdk, { ScryptedDeviceBase, DeviceProvider, Settings, Setting, ScryptedDeviceType, VideoCamera, MediaObject, DeviceManifest, Device, MotionSensor, Refresh, ScryptedInterfaceDescriptors, ScryptedInterface, Camera } from "@scrypted/sdk";
 const { log, deviceManager, mediaManager } = sdk;
-import axios from 'axios';
+import axios, { AxiosResponse, AxiosRequestConfig, AxiosPromise } from 'axios';
 import throttle from 'lodash/throttle';
+const { Buffer } = require('buffer');
 
-class RtspCamera extends ScryptedDeviceBase implements VideoCamera, MotionSensor, Refresh {
+class RtspCamera extends ScryptedDeviceBase implements Camera, VideoCamera, MotionSensor, Refresh {
     protect: UnifiProtect;
 
     constructor(protect: UnifiProtect, nativeId: string) {
         super(nativeId);
         this.protect = protect;
+    }
+    takePicture(): MediaObject {
+        const url = `https://${this.protect.getSetting('ip')}:7443/api/cameras/${this.nativeId}/snapshot?accessKey=${this.protect.accessKey}&force=true&ts=${Date.now()}`
+        this.log.i(`fetching picture url: ${url}`);
+        const promise: Promise<Buffer> = this.protect.getRetryAuth({
+            url,
+            responseType: 'arraybuffer',
+        })
+        .then(response => {
+            this.log.i(`fetched ${response.data.length} bytes`);
+            return response.data
+        })
+        return mediaManager.createMediaObject(promise, 'image/*');
     }
     getRefreshFrequency(): number {
         return 1;
@@ -56,7 +70,7 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
     refreshThrottle = throttle(async () => {
         const {cameras} = await this.getState();
         for (const camera of cameras) {
-            const rtsp = this.cameras.get(camera.mac);
+            const rtsp = this.cameras.get(camera.id);
             if (!rtsp)
                 continue;
             if (rtsp.storage.getItem('lastMotion') != camera.lastMotion) {
@@ -72,12 +86,20 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
         this.refreshThrottle();
     }
 
-    async getState(): Promise<any> {
+    async getWithAuth(u: string): Promise<AxiosResponse> {
+        return axios(u, {
+            
+            headers: {
+                Authorization: `Bearer ${this.authorization}`
+            }
+        });
+    }
+
+    async refreshAuth() {
         const ip = this.getSetting('ip');
         const username = this.getSetting('username');
         const password = this.getSetting('password');
-
-        const response = await axios.post(`https://${ip}:7443/api/auth`, {
+        const authResponse = await axios.post(`https://${ip}:7443/api/auth`, {
             username,
             password,
         }, {
@@ -85,11 +107,37 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
                 Origin: `https://${ip}:7443`,
                 'Content-Type': 'application/json; charset=utf-8',
             }
-        })
+        });
 
-        this.authorization = response.headers.authorization;
+        this.authorization = authResponse.headers.authorization;
+    }
 
-        const bootstrapResponse = await axios(`https://${ip}:7443/api/bootstrap`, {
+    getRetryAuth<T = any>(config: AxiosRequestConfig): AxiosPromise<T> {
+        config.headers = Object.assign({}, config.headers, {
+            Authorization: `Bearer ${this.authorization}`
+        });
+
+        return axios(config)
+        .catch(e => {
+            if (!e.response || e.response.status !== 401)
+                throw e;
+
+            return this.refreshAuth()
+            .then(() => {
+                config.headers = Object.assign({}, config.headers, {
+                    Authorization: `Bearer ${this.authorization}`
+                });
+            
+                return axios(config);
+            })
+        });
+    }
+
+    async getState(): Promise<any> {
+        const ip = this.getSetting('ip');
+
+        const bootstrapResponse = await this.getRetryAuth({
+            url: `https://${ip}:7443/api/bootstrap`,
             headers: {
                 Authorization: `Bearer ${this.authorization}`
             }
@@ -139,8 +187,12 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
 
                 devices.push({
                     name: camera.name,
-                    nativeId: camera.mac,
-                    interfaces: [ScryptedInterface.VideoCamera, ScryptedInterface.MotionSensor, ScryptedInterface.Refresh],
+                    nativeId: camera.id,
+                    interfaces: [
+                        ScryptedInterface.Camera,
+                        ScryptedInterface.VideoCamera,
+                        ScryptedInterface.MotionSensor,
+                        ScryptedInterface.Refresh],
                     type: ScryptedDeviceType.Camera,
                     metadata: {
                         rtsp: `rtsp://${ip}:7447/${rtspAlias}`
