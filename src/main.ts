@@ -22,7 +22,7 @@ class RtspCamera extends ScryptedDeviceBase implements Camera, VideoCamera, Moti
             this.log.i(`fetched ${response.data.length} bytes`);
             return response.data
         })
-        return mediaManager.createMediaObject(promise, 'image/*');
+        return mediaManager.createMediaObject(promise, 'image/jpeg');
     }
     getRefreshFrequency(): number {
         return 1;
