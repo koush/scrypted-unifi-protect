@@ -12,7 +12,7 @@ class RtspCamera extends ScryptedDeviceBase implements Camera, VideoCamera, Moti
         this.protect = protect;
     }
     takePicture(): MediaObject {
-        const url = `https://${this.protect.getSetting('ip')}:7443/api/cameras/${this.nativeId}/snapshot?accessKey=${this.protect.accessKey}&force=true&ts=${Date.now()}`
+        const url = `https://${this.protect.getSetting('ip')}/proxy/protect/api/cameras/${this.nativeId}/snapshot?accessKey=${this.protect.accessKey}&force=true&ts=${Date.now()}`
         this.log.i(`fetching picture url: ${url}`);
         const promise: Promise<Buffer> = this.protect.getRetryAuth({
             url,
@@ -83,14 +83,14 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
         }
     }, 1000);
     async refresh() {
-        this.refreshThrottle();
+        // this.refreshThrottle();
     }
 
     async getWithAuth(u: string): Promise<AxiosResponse> {
         return axios(u, {
             
             headers: {
-                Authorization: `Bearer ${this.authorization}`
+                Cookie: this.authorization
             }
         });
     }
@@ -99,22 +99,26 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
         const ip = this.getSetting('ip');
         const username = this.getSetting('username');
         const password = this.getSetting('password');
-        const authResponse = await axios.post(`https://${ip}:7443/api/auth`, {
+        const authResponse = await axios.post(`https://${ip}/api/auth/login`, {
             username,
             password,
         }, {
             headers: {
-                Origin: `https://${ip}:7443`,
+                Origin: `https://${ip}`,
                 'Content-Type': 'application/json; charset=utf-8',
             }
         });
 
-        this.authorization = authResponse.headers.authorization;
+        const auth = authResponse.headers['set-cookie'];
+        if (auth instanceof Array)
+            this.authorization = auth[0]
+        else
+            this.authorization = auth;
     }
 
     getRetryAuth<T = any>(config: AxiosRequestConfig): AxiosPromise<T> {
         config.headers = Object.assign({}, config.headers, {
-            Authorization: `Bearer ${this.authorization}`
+            Cookie: this.authorization
         });
 
         return axios(config)
@@ -125,7 +129,7 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
             return this.refreshAuth()
             .then(() => {
                 config.headers = Object.assign({}, config.headers, {
-                    Authorization: `Bearer ${this.authorization}`
+                    Cookie: this.authorization
                 });
             
                 return axios(config);
@@ -137,9 +141,9 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
         const ip = this.getSetting('ip');
 
         const bootstrapResponse = await this.getRetryAuth({
-            url: `https://${ip}:7443/api/bootstrap`,
+            url: `https://${ip}/proxy/protect/api/bootstrap`,
             headers: {
-                Authorization: `Bearer ${this.authorization}`
+                Cookie: this.authorization
             }
         });
 
