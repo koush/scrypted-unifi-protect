@@ -12,7 +12,7 @@ class RtspCamera extends ScryptedDeviceBase implements Camera, VideoCamera, Moti
         this.protect = protect;
     }
     takePicture(): MediaObject {
-        const url = `https://${this.protect.getSetting('ip')}/proxy/protect/api/cameras/${this.nativeId}/snapshot?accessKey=${this.protect.accessKey}&force=true&ts=${Date.now()}`
+        const url = `https://${this.protect.getSetting('ip')}/proxy/protect/api/cameras/${this.nativeId}/snapshot?ts=${Date.now()}`
         this.log.i(`fetching picture url: ${url}`);
         const promise: Promise<Buffer> = this.protect.getRetryAuth({
             url,
@@ -39,7 +39,8 @@ class RtspCamera extends ScryptedDeviceBase implements Camera, VideoCamera, Moti
         if (this.storage.getItem("ffmpeg") === 'true') {
             return mediaManager.createFFmpegMediaObject({
                 inputArguments: [
-                    "-an",
+                    "-rtsp_transport",
+                    "tcp",
                     "-i",
                     u.toString(),
                     "-reorder_queue_size",
