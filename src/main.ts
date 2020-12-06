@@ -4,7 +4,7 @@ import axios, { AxiosResponse, AxiosRequestConfig, AxiosPromise } from 'axios';
 import throttle from 'lodash/throttle';
 const { Buffer } = require('buffer');
 
-class RtspCamera extends ScryptedDeviceBase implements Camera, VideoCamera, MotionSensor, Refresh {
+class RtspCamera extends ScryptedDeviceBase implements Camera, VideoCamera, MotionSensor, Refresh, Settings {
     protect: UnifiProtect;
 
     constructor(protect: UnifiProtect, nativeId: string) {
@@ -53,6 +53,23 @@ class RtspCamera extends ScryptedDeviceBase implements Camera, VideoCamera, Moti
 
         // mime type will be inferred from the rtsp scheme, and null may be passed.
         return mediaManager.createMediaObject(u, null);
+    }
+    getSetting(key: string): string | number {
+        return this.storage.getItem(key);
+    }
+    getSettings(): Setting[] {
+        return [
+            {
+                key: 'ffmpeg',
+                title: 'Force FFMPEG',
+                value: this.getSetting('ffmpeg')?.toString(),
+                description: "Use ffmpeg instead of built in RTSP decoder.",
+                type: 'Boolean',
+            }
+        ];
+    }
+    putSetting(key: string, value: string | number): void {
+        this.storage.setItem(key, value.toString());
     }
 }
 
@@ -194,6 +211,7 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
                     name: camera.name,
                     nativeId: camera.id,
                     interfaces: [
+                        ScryptedInterface.Settings,
                         ScryptedInterface.Camera,
                         ScryptedInterface.VideoCamera,
                         ScryptedInterface.MotionSensor,
