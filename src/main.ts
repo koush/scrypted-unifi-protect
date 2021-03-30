@@ -1,8 +1,14 @@
 import sdk, { ScryptedDeviceBase, DeviceProvider, Settings, Setting, ScryptedDeviceType, VideoCamera, MediaObject, DeviceManifest, Device, MotionSensor, Refresh, ScryptedInterfaceDescriptors, ScryptedInterface, Camera } from "@scrypted/sdk";
-const { log, deviceManager, mediaManager } = sdk;
 import axios, { AxiosResponse, AxiosRequestConfig, AxiosPromise } from 'axios';
 import throttle from 'lodash/throttle';
-const { Buffer } = require('buffer');
+import https from 'https';
+import Buffer from 'buffer';
+
+const { log, deviceManager, mediaManager } = sdk;
+
+const httpsAgent = new https.Agent({  
+    rejectUnauthorized: false
+})
 
 class RtspCamera extends ScryptedDeviceBase implements Camera, VideoCamera, MotionSensor, Refresh, Settings {
     protect: UnifiProtect;
@@ -11,11 +17,12 @@ class RtspCamera extends ScryptedDeviceBase implements Camera, VideoCamera, Moti
         super(nativeId);
         this.protect = protect;
     }
-    takePicture(): MediaObject {
+    async takePicture(): Promise<MediaObject> {
         const url = `https://${this.protect.getSetting('ip')}/proxy/protect/api/cameras/${this.nativeId}/snapshot?ts=${Date.now()}`
         this.log.i(`fetching picture url: ${url}`);
         const promise: Promise<Buffer> = this.protect.getRetryAuth({
             url,
+            httpsAgent,
             responseType: 'arraybuffer',
         })
         .then(response => {
@@ -24,40 +31,37 @@ class RtspCamera extends ScryptedDeviceBase implements Camera, VideoCamera, Moti
         })
         return mediaManager.createMediaObject(promise, 'image/jpeg');
     }
-    getRefreshFrequency(): number {
+    async getRefreshFrequency(): Promise<number> {
         return 1;
     }
     refresh(refreshInterface: string, userInitiated: boolean): void {
         this.protect.refresh();
     }
-    getVideoStream(): MediaObject {
+    async getVideoStream(): Promise<MediaObject> {
         var u = this.metadata.rtsp;
         if (u == null) {
             return null;
         }
 
-        if (this.storage.getItem("ffmpeg") === 'true') {
-            return mediaManager.createFFmpegMediaObject({
-                inputArguments: [
-                    "-rtsp_transport",
-                    "tcp",
-                    "-i",
-                    u.toString(),
-                    "-reorder_queue_size",
-                    "1024",
-                    "-max_delay",
-                    "2000000",
-                ]
-            });
-        }
-
-        // mime type will be inferred from the rtsp scheme, and null may be passed.
-        return mediaManager.createMediaObject(u, null);
+        return mediaManager.createFFmpegMediaObject({
+            inputArguments: [
+                "-rtsp_transport",
+                "tcp",
+                "-i",
+                u.toString(),
+                '-analyzeduration', '15000000',
+                '-probesize', '100000000',
+                "-reorder_queue_size",
+                "1024",
+                "-max_delay",
+                "20000000",
+            ]
+        });
     }
     getSetting(key: string): string | number {
         return this.storage.getItem(key);
     }
-    getSettings(): Setting[] {
+    async getSettings(): Promise<Setting[]> {
         return [
             {
                 key: 'ffmpeg',
@@ -106,7 +110,7 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
 
     async getWithAuth(u: string): Promise<AxiosResponse> {
         return axios(u, {
-            
+            httpsAgent,
             headers: {
                 Cookie: this.authorization
             }
@@ -121,6 +125,7 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
             username,
             password,
         }, {
+            httpsAgent,
             headers: {
                 Origin: `https://${ip}`,
                 'Content-Type': 'application/json; charset=utf-8',
@@ -141,7 +146,7 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
 
         return axios(config)
         .catch(e => {
-            if (!e.response || e.response.status !== 401)
+            if ((!e.response || e.response.status !== 401) && this.authorization)
                 throw e;
 
             return this.refreshAuth()
@@ -160,6 +165,7 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
 
         const bootstrapResponse = await this.getRetryAuth({
             url: `https://${ip}/proxy/protect/api/bootstrap`,
+            httpsAgent,
             headers: {
                 Cookie: this.authorization
             }
@@ -211,7 +217,7 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
                     name: camera.name,
                     nativeId: camera.id,
                     interfaces: [
-                        ScryptedInterface.Settings,
+                        // ScryptedInterface.Settings,
                         ScryptedInterface.Camera,
                         ScryptedInterface.VideoCamera,
                         ScryptedInterface.MotionSensor,
@@ -244,7 +250,7 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
     getSetting(key: string): string {
         return this.storage.getItem(key);
     }
-    getSettings(): Setting[] {
+    async getSettings(): Promise<Setting[]> {
         this.log.i('getting settings');
         return [
             {
