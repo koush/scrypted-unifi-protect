@@ -34,7 +34,7 @@ class RtspCamera extends ScryptedDeviceBase implements Camera, VideoCamera, Moti
     async getRefreshFrequency(): Promise<number> {
         return 1;
     }
-    refresh(refreshInterface: string, userInitiated: boolean): void {
+    async refresh(refreshInterface: string, userInitiated: boolean) {
         this.protect.refresh();
     }
     async getVideoStream(): Promise<MediaObject> {
@@ -72,7 +72,7 @@ class RtspCamera extends ScryptedDeviceBase implements Camera, VideoCamera, Moti
             }
         ];
     }
-    putSetting(key: string, value: string | number): void {
+    async putSetting(key: string, value: string | number) {
         this.storage.setItem(key, value.toString());
     }
 }
@@ -272,7 +272,7 @@ class UnifiProtect extends ScryptedDeviceBase implements Settings, DeviceProvide
             },
         ];
     }
-    putSetting(key: string, value: string | number): void {
+    async putSetting(key: string, value: string | number) {
         this.storage.setItem(key, value.toString());
         this.discoverDevices(0);
     }
